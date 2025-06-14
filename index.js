@@ -25,8 +25,16 @@ async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
     await client.connect();
+    // DB name 
+    const db = client.db('pickPerfectDB');
+    const usersQueriesCollection = db.collection("usersQueries");
 
 
+    app.post('/allqueries', async (req, res) =>{
+        const queriesData = req.body;
+        const result = await usersQueriesCollection.insertOne(queriesData);
+        res.send(result);
+    })
 
 
 
