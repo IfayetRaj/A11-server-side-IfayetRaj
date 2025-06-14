@@ -27,14 +27,37 @@ async function run() {
     await client.connect();
     // DB name 
     const db = client.db('pickPerfectDB');
+    // Collection name
     const usersQueriesCollection = db.collection("usersQueries");
+    const allRecCollection = db.collection('allRecommendation');
 
-
+    // adding queries
     app.post('/allqueries', async (req, res) =>{
         const queriesData = req.body;
         const result = await usersQueriesCollection.insertOne(queriesData);
         res.send(result);
     })
+
+    // all queries
+    app.get('/allqueries', async (req, res) =>{
+        try{
+            const result = await usersQueriesCollection.find().toArray();
+            res.send(result);
+        } catch (error){
+            console.error("Error fetching data:", error);
+        }
+    })
+
+
+    // sending recommendation to DB
+    app.post('/recommendation', async (req, res) =>{
+        const recData = req.body;
+        const result = await allRecCollection.insertOne(recData);
+        res.send(result);
+    })
+
+
+
 
 
 
