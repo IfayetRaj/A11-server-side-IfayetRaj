@@ -1,4 +1,4 @@
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const express = require('express');
 const cors = require('cors');
 const app = express();
@@ -38,6 +38,23 @@ async function run() {
         res.send(result);
     })
 
+
+    // all queries increment
+    app.patch("/allqueries/:id", async (req, res) =>{
+        const id = req.params.id;
+        try{
+            const result = await usersQueriesCollection.updateOne(
+                { _id: new ObjectId(id) },
+                { $inc: { recommendationCount: 1 } }
+            );
+            res.send(result);
+        }
+        catch (error) {
+            res.status(500).send({ message: "Failed to increment", error });
+          }
+    })
+
+
     // all queries
     app.get('/allqueries', async (req, res) =>{
         try{
@@ -47,7 +64,15 @@ async function run() {
             console.error("Error fetching data:", error);
         }
     })
-
+    // all recommendation 
+    app.get('/recommendation', async (req, res) =>{
+        try{
+           const result = await allRecCollection.find().toArray();
+           res.send(result);
+        } catch(error){
+            console.error("Error fetching data:", error);
+        }
+    })
 
     // sending recommendation to DB
     app.post('/recommendation', async (req, res) =>{
@@ -57,7 +82,19 @@ async function run() {
     })
 
 
-
+    // deleting a document using the id
+    app.delete('/recommendation/:id', async (req, res) =>{
+        const id = req.params.id;
+        try {
+            const result = await allRecCollection.deleteOne({_id: new ObjectId(id)});
+            if (result.deletedCount > 0) {
+                res.send({ success: true, message: "Recommendation deleted." });
+              }
+        }
+        catch(error){
+            res.status(500).send({ success: false, error: error.message });
+        }
+    })
 
 
 
