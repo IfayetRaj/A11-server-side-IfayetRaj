@@ -12,12 +12,19 @@ require("dotenv").config();
 
 app.use(express.json());
 app.use(cookieParser());
+// app.use(
+//   cors({
+//     origin: [
+//       "http://localhost:5173",
+//       "https://pick-perfect-1f90f.web.app",
+//     ],
+//     credentials: true,
+//   })
+// );
+
 app.use(
   cors({
-    origin: [
-      "http://localhost:5173",
-      "https://pick-perfect-1f90f.web.app",
-    ],
+    origin: "https://pick-perfect-1f90f.web.app",
     credentials: true,
   })
 );
@@ -70,12 +77,20 @@ async function run() {
         });
 
         // Set JWT token in HTTP-only cookie
+        // res.cookie("access-token", jwtToken, {
+        //   httpOnly: true,
+        //   secure: process.env.NODE_ENV === "production",
+        //   sameSite: "lax",
+        //   maxAge: 60 * 60 * 1000, // 1 hour
+        // });
+
+
         res.cookie("access-token", jwtToken, {
-          httpOnly: true,
-          secure: process.env.NODE_ENV === "production",
-          sameSite: "lax",
-          maxAge: 60 * 60 * 1000, // 1 hour
-        });
+  httpOnly: true,
+  secure: true,         // Always true for HTTPS
+  sameSite: "None",     // 🔥 This allows cross-site cookies
+  maxAge: 60 * 60 * 1000,
+});
 
         res.json({ success: true });
       } catch (error) {
