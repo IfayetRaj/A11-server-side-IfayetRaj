@@ -1,26 +1,18 @@
-const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const express = require("express");
 const cors = require("cors");
-const admin = require("firebase-admin");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 const cookieParser = require("cookie-parser");
 const jwt = require("jsonwebtoken");
+const admin = require("firebase-admin");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
+require("dotenv").config();
+
 const app = express();
 const port = process.env.PORT || 3000;
-require("dotenv").config();
 
 app.use(express.json());
 app.use(cookieParser());
-// app.use(
-//   cors({
-//     origin: [
-//       "http://localhost:5173",
-//       "https://pick-perfect-1f90f.web.app",
-//     ],
-//     credentials: true,
-//   })
-// );
 
 app.use(
   cors({
@@ -30,20 +22,21 @@ app.use(
 );
 
 app.use(helmet());
-app.use(rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 min
-  max: 100 // limit each IP
-}));
+app.use(
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 100,
+  })
+);
 
-// Initialize Firebase Admin SDK with service account key
+// Firebase Admin
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
 
-const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASSWORD}@cluster0.ddy6nyc.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
-
-// Create a MongoClient with a MongoClientOptions object to set the Stable API version
+// MongoDB
+const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASSWORD}@cluster0.ddy6nyc.mongodb.net/?retryWrites=true&w=majority`;
 const client = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
@@ -54,52 +47,12 @@ const client = new MongoClient(uri, {
 
 async function run() {
   try {
-    // Connect the client to the server	(optional starting in v4.7)
     await client.connect();
-    // DB name
     const db = client.db("pickPerfectDB");
-    // Collection name
-    const usersQueriesCollection = db.collection("usersQueries");
-    const allRecCollection = db.collection("allRecommendation");
+    const usersQueries = db.collection("usersQueries");
+    const recommendations = db.collection("allRecommendation");
 
-    // POST /jwt — Verify Firebase token & create JWT cookie
-    app.post("/jwt", async (req, res) => {
-      const { token } = req.body;
-
-      try {
-        // Verify Firebase ID token
-        const decodedToken = await admin.auth().verifyIdToken(token);
-        const email = decodedToken.email;
-
-        // Create your JWT token
-        const jwtToken = jwt.sign({ email }, process.env.JWT_SECRET, {
-          expiresIn: "1h",
-        });
-
-        // Set JWT token in HTTP-only cookie
-        res.cookie("access-token", jwtToken, {
-          httpOnly: true,
-          secure: process.env.NODE_ENV === "production",
-          sameSite: "lax",
-          maxAge: 60 * 60 * 1000, // 1 hour
-        });
-
-
-//         res.cookie("access-token", jwtToken, {
-//   httpOnly: true,
-//   secure: true,        
-//   sameSite: "None",     
-//   maxAge: 60 * 60 * 1000,
-// });
-
-        res.json({ success: true });
-      } catch (error) {
-        console.error("Error verifying token:", error);
-        res.status(401).json({ message: "Unauthorized" });
-      }
-    });
-
-    // Middleware to verify JWT cookie
+    // Middleware: Verify JWT from cookie
     const verifyJWT = (req, res, next) => {
       const token = req.cookies["access-token"];
       if (!token) return res.status(401).json({ message: "Unauthorized" });
@@ -111,142 +64,112 @@ async function run() {
       });
     };
 
-    // adding queries
-    app.post("/allqueries", verifyJWT, async (req, res) => {
-      const queriesData = req.body;
-      const result = await usersQueriesCollection.insertOne(queriesData);
-      res.send(result);
-    });
+    // Exchange Firebase token for JWT
+    app.post("/jwt", async (req, res) => {
+      const { token } = req.body;
 
-    // all queries increment
-    app.patch("/allqueries/:id", verifyJWT, async (req, res) => {
-      const id = req.params.id;
       try {
-        const result = await usersQueriesCollection.updateOne(
-          { _id: new ObjectId(id) },
-          { $inc: { recommendationCount: 1 } }
-        );
-        res.send(result);
-      } catch (error) {
-        res.status(500).send({ message: "Failed to increment", error });
-      }
-    });
-
-    // all queries decrement
-    app.patch("/allqueries/:id/decrement", verifyJWT, async (req, res) => {
-      const id = req.params.id;
-      try {
-        const result = await usersQueriesCollection.updateOne(
-          { _id: new ObjectId(id) },
-          { $inc: { recommendationCount: -1 } }
-        );
-        res.send(result);
-      } catch (error) {
-        res.status(500).send({ message: "Failed to decrement", error });
-      }
-    });
-
-    // all queries
-    app.get("/allqueries", async (req, res) => {
-      try {
-        const result = await usersQueriesCollection.find().toArray();
-        res.send(result);
-      } catch (error) {
-        console.error("Error fetching data:", error);
-      }
-    });
-    // all recommendation
-    app.get("/recommendation", verifyJWT, async (req, res) => {
-      try {
-        const result = await allRecCollection.find().toArray();
-        res.send(result);
-      } catch (error) {
-        console.error("Error fetching data:", error);
-      }
-    });
-
-    // sending recommendation to DB
-    app.post("/recommendation", verifyJWT, async (req, res) => {
-      const recData = req.body;
-      const result = await allRecCollection.insertOne(recData);
-      res.send(result);
-    });
-
-    // deleting a document using the id
-    app.delete("/recommendation/:id", verifyJWT, async (req, res) => {
-      const id = req.params.id;
-      try {
-        const result = await allRecCollection.deleteOne({
-          _id: new ObjectId(id),
-        });
-        if (result.deletedCount > 0) {
-          res.send({ success: true, message: "Recommendation deleted." });
-        }
-      } catch (error) {
-        res.status(500).send({ success: false, error: error.message });
-      }
-    });
-
-    // Put or replace a document
-    app.put("/allqueries/:id", verifyJWT, async (req, res) => {
-      const id = req.params.id;
-      const newData = req.body;
-      try {
-        const result = await usersQueriesCollection.updateOne(
-          { _id: new ObjectId(id) },
-          { $set: newData }
-        );
-        if (result.matchedCount === 0) {
-          return res.status(404).send("Document not found");
-        }
-
-        res.send({ message: "Document updated successfully", result });
-      } catch (error) {
-        console.error("Update error:", error);
-        res.status(500).send("Internal server error");
-      }
-    });
-
-    // delete my queries
-    app.delete("/allqueries/:id", verifyJWT, async (req, res) => {
-      const id = req.params.id;
-      try {
-        const result = await usersQueriesCollection.deleteOne({
-          _id: new ObjectId(id),
+        const decoded = await admin.auth().verifyIdToken(token);
+        const jwtToken = jwt.sign({ email: decoded.email }, process.env.JWT_SECRET, {
+          expiresIn: "1h",
         });
 
-        await allRecCollection.deleteMany({ postID: id });
+        res.cookie("access-token", jwtToken, {
+          httpOnly: true,
+          secure: true,
+          sameSite: "None",
+          maxAge: 60 * 60 * 1000,
+        });
 
-        if (result.deletedCount > 0) {
-          res.send({ success: true, message: "Recommendation deleted." });
-        }
+        res.json({ success: true });
       } catch (error) {
-        res.status(500).send({ success: false, error: error.message });
+        console.error("Token verification failed:", error);
+        res.status(401).json({ message: "Unauthorized" });
       }
     });
 
-    // logout
+    // Logout: clear cookie
     app.post("/logout", (req, res) => {
-      res.clearCookie("access-token");
+      res.clearCookie("access-token", {
+        httpOnly: true,
+        secure: true,
+        sameSite: "None",
+      });
       res.json({ message: "Logged out successfully." });
     });
 
-    // Send a ping to confirm a successful connection
+    // Queries
+    app.get("/allqueries", async (req, res) => {
+      const result = await usersQueries.find().toArray();
+      res.send(result);
+    });
+
+    app.post("/allqueries", verifyJWT, async (req, res) => {
+      const result = await usersQueries.insertOne(req.body);
+      res.send(result);
+    });
+
+    app.put("/allqueries/:id", verifyJWT, async (req, res) => {
+      const id = req.params.id;
+      const result = await usersQueries.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: req.body }
+      );
+      res.send(result);
+    });
+
+    app.patch("/allqueries/:id", verifyJWT, async (req, res) => {
+      const result = await usersQueries.updateOne(
+        { _id: new ObjectId(req.params.id) },
+        { $inc: { recommendationCount: 1 } }
+      );
+      res.send(result);
+    });
+
+    app.patch("/allqueries/:id/decrement", verifyJWT, async (req, res) => {
+      const result = await usersQueries.updateOne(
+        { _id: new ObjectId(req.params.id) },
+        { $inc: { recommendationCount: -1 } }
+      );
+      res.send(result);
+    });
+
+    app.delete("/allqueries/:id", verifyJWT, async (req, res) => {
+      const id = req.params.id;
+      await usersQueries.deleteOne({ _id: new ObjectId(id) });
+      await recommendations.deleteMany({ postID: id });
+      res.json({ success: true });
+    });
+
+    // Recommendations
+    app.get("/recommendation", verifyJWT, async (req, res) => {
+      const result = await recommendations.find().toArray();
+      res.send(result);
+    });
+
+    app.post("/recommendation", verifyJWT, async (req, res) => {
+      const result = await recommendations.insertOne(req.body);
+      res.send(result);
+    });
+
+    app.delete("/recommendation/:id", verifyJWT, async (req, res) => {
+      const result = await recommendations.deleteOne({ _id: new ObjectId(req.params.id) });
+      res.send(result);
+    });
+
+    // Ping test
     await client.db("admin").command({ ping: 1 });
-    console.log(
-      "Pinged your deployment. You successfully connected to MongoDB!"
-    );
-  } finally {
-    // Ensures that the client will close when you finish/error
-    // await client.close();
+    console.log(" MongoDB Connected");
+  } catch (err) {
+    console.error(" DB error:", err);
   }
 }
-run().catch(console.dir);
+run();
 
 app.get("/", (req, res) => {
-  res.send("hello form express");
+  res.send(" Backend is running");
 });
 
 app.listen(port, () => {
-  console.log(`Server running at http://localhost:${port}`);
+  console.log(`Server is live at http://localhost:${port}`);
 });
