@@ -26,8 +26,9 @@ app.use(rateLimit({
 }));
 
 // Initialize Firebase Admin SDK with service account key
+const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
 admin.initializeApp({
-  credential: admin.credential.cert(require("./firebase-service-account.json")),
+  credential: admin.credential.cert(serviceAccount),
 });
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASSWORD}@cluster0.ddy6nyc.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
