@@ -76,7 +76,7 @@ async function run() {
           expiresIn: "1h",
         });
 
-        Set JWT token in HTTP-only cookie
+        // Set JWT token in HTTP-only cookie
         res.cookie("access-token", jwtToken, {
           httpOnly: true,
           secure: process.env.NODE_ENV === "production",
