@@ -76,21 +76,21 @@ async function run() {
           expiresIn: "1h",
         });
 
-        // Set JWT token in HTTP-only cookie
-        // res.cookie("access-token", jwtToken, {
-        //   httpOnly: true,
-        //   secure: process.env.NODE_ENV === "production",
-        //   sameSite: "lax",
-        //   maxAge: 60 * 60 * 1000, // 1 hour
-        // });
-
-
+        Set JWT token in HTTP-only cookie
         res.cookie("access-token", jwtToken, {
-  httpOnly: true,
-  secure: true,         // Always true for HTTPS
-  sameSite: "None",     // 🔥 This allows cross-site cookies
-  maxAge: 60 * 60 * 1000,
-});
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "lax",
+          maxAge: 60 * 60 * 1000, // 1 hour
+        });
+
+
+//         res.cookie("access-token", jwtToken, {
+//   httpOnly: true,
+//   secure: true,        
+//   sameSite: "None",     
+//   maxAge: 60 * 60 * 1000,
+// });
 
         res.json({ success: true });
       } catch (error) {
