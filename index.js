@@ -1,7 +1,9 @@
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const express = require("express");
 const cors = require("cors");
-const admin = require('firebase-admin');
+const admin = require("firebase-admin");
+const helmet = require("helmet");
+const rateLimit = require("express-rate-limit");
 const cookieParser = require("cookie-parser");
 const jwt = require("jsonwebtoken");
 const app = express();
@@ -10,11 +12,18 @@ require("dotenv").config();
 
 app.use(express.json());
 app.use(cookieParser());
-app.use(cors({
-  origin: "http://localhost:5173", // 👈 specific origin, not *
-  credentials: true,               // 👈 allow sending cookies
-}));
+app.use(
+  cors({
+    origin: process.env.CLIENT_URL || "http://localhost:5173", 
+    credentials: true,
+  })
+);
 
+app.use(helmet());
+app.use(rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 min
+  max: 100 // limit each IP
+}));
 
 // Initialize Firebase Admin SDK with service account key
 admin.initializeApp({
@@ -42,67 +51,56 @@ async function run() {
     const usersQueriesCollection = db.collection("usersQueries");
     const allRecCollection = db.collection("allRecommendation");
 
-
     // POST /jwt — Verify Firebase token & create JWT cookie
-app.post("/jwt", async (req, res) => {
-  const { token } = req.body;
+    app.post("/jwt", async (req, res) => {
+      const { token } = req.body;
 
-  try {
-    // Verify Firebase ID token
-    const decodedToken = await admin.auth().verifyIdToken(token);
-    const email = decodedToken.email;
+      try {
+        // Verify Firebase ID token
+        const decodedToken = await admin.auth().verifyIdToken(token);
+        const email = decodedToken.email;
 
-    // Create your JWT token
-    const jwtToken = jwt.sign({ email }, process.env.JWT_SECRET, { expiresIn: "1h" });
+        // Create your JWT token
+        const jwtToken = jwt.sign({ email }, process.env.JWT_SECRET, {
+          expiresIn: "1h",
+        });
 
-    // Set JWT token in HTTP-only cookie
-    res.cookie("access-token", jwtToken, {
-      httpOnly: true,
-      secure: false,       // true if HTTPS
-      sameSite: "lax",
-      maxAge: 60 * 60 * 1000,  // 1 hour
+        // Set JWT token in HTTP-only cookie
+        res.cookie("access-token", jwtToken, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "lax",
+          maxAge: 60 * 60 * 1000, // 1 hour
+        });
+
+        res.json({ success: true });
+      } catch (error) {
+        console.error("Error verifying token:", error);
+        res.status(401).json({ message: "Unauthorized" });
+      }
     });
 
-    res.json({ success: true });
-  } catch (error) {
-    console.error("Error verifying token:", error);
-    res.status(401).json({ message: "Unauthorized" });
-  }
-});
+    // Middleware to verify JWT cookie
+    const verifyJWT = (req, res, next) => {
+      const token = req.cookies["access-token"];
+      if (!token) return res.status(401).json({ message: "Unauthorized" });
 
-
-// Middleware to verify JWT cookie
-const verifyJWT = (req, res, next) => {
-  const token = req.cookies["access-token"];
-  if (!token) return res.status(401).json({ message: "Unauthorized" });
-
-  jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
-    if (err) return res.status(403).json({ message: "Forbidden" });
-    req.user = decoded;
-    next();
-  });
-};
-
-
-
-
-
-
-
-
+      jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
+        if (err) return res.status(403).json({ message: "Forbidden" });
+        req.user = decoded;
+        next();
+      });
+    };
 
     // adding queries
-    app.post("/allqueries",verifyJWT, async (req, res) => {
+    app.post("/allqueries", verifyJWT, async (req, res) => {
       const queriesData = req.body;
       const result = await usersQueriesCollection.insertOne(queriesData);
       res.send(result);
     });
 
-
-    
-
     // all queries increment
-    app.patch("/allqueries/:id",verifyJWT, async (req, res) => {
+    app.patch("/allqueries/:id", verifyJWT, async (req, res) => {
       const id = req.params.id;
       try {
         const result = await usersQueriesCollection.updateOne(
@@ -116,18 +114,18 @@ const verifyJWT = (req, res, next) => {
     });
 
     // all queries decrement
-    app.patch("/allqueries/:id/decrement",verifyJWT,async (req, res) =>{
+    app.patch("/allqueries/:id/decrement", verifyJWT, async (req, res) => {
       const id = req.params.id;
-      try{
+      try {
         const result = await usersQueriesCollection.updateOne(
           { _id: new ObjectId(id) },
-      { $inc: { recommendationCount: -1 } }
-        )
+          { $inc: { recommendationCount: -1 } }
+        );
         res.send(result);
-      }catch (error) {
+      } catch (error) {
         res.status(500).send({ message: "Failed to decrement", error });
       }
-    })
+    });
 
     // all queries
     app.get("/allqueries", async (req, res) => {
@@ -139,7 +137,7 @@ const verifyJWT = (req, res, next) => {
       }
     });
     // all recommendation
-    app.get("/recommendation",verifyJWT, async (req, res) => {
+    app.get("/recommendation", verifyJWT, async (req, res) => {
       try {
         const result = await allRecCollection.find().toArray();
         res.send(result);
@@ -149,14 +147,14 @@ const verifyJWT = (req, res, next) => {
     });
 
     // sending recommendation to DB
-    app.post("/recommendation",verifyJWT, async (req, res) => {
+    app.post("/recommendation", verifyJWT, async (req, res) => {
       const recData = req.body;
       const result = await allRecCollection.insertOne(recData);
       res.send(result);
     });
 
     // deleting a document using the id
-    app.delete("/recommendation/:id",verifyJWT, async (req, res) => {
+    app.delete("/recommendation/:id", verifyJWT, async (req, res) => {
       const id = req.params.id;
       try {
         const result = await allRecCollection.deleteOne({
@@ -171,34 +169,27 @@ const verifyJWT = (req, res, next) => {
     });
 
     // Put or replace a document
-    app.put('/allqueries/:id',verifyJWT, async  (req, res) =>{
+    app.put("/allqueries/:id", verifyJWT, async (req, res) => {
       const id = req.params.id;
       const newData = req.body;
-      try{
+      try {
         const result = await usersQueriesCollection.updateOne(
-          {_id: new ObjectId(id)},
-          {$set: newData}
+          { _id: new ObjectId(id) },
+          { $set: newData }
         );
         if (result.matchedCount === 0) {
           return res.status(404).send("Document not found");
         }
-    
+
         res.send({ message: "Document updated successfully", result });
-      }
-      catch (error) {
+      } catch (error) {
         console.error("Update error:", error);
         res.status(500).send("Internal server error");
       }
-    })
-
-
-
-
-
-
+    });
 
     // delete my queries
-    app.delete("/allqueries/:id",verifyJWT, async (req, res) => {
+    app.delete("/allqueries/:id", verifyJWT, async (req, res) => {
       const id = req.params.id;
       try {
         const result = await usersQueriesCollection.deleteOne({
